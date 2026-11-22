@@ -23,6 +23,10 @@ Covered in [HARDWARE.md](HARDWARE.md); the short version:
 - **The 9060 XT's firmware hung once in 31 boots**; a reboot fixed it. Its fans stop at idle, so it idles
   warmer. Neither is a fault in the build.
 - **The BIOS defaults already work**: Above 4G decoding, Re-Size BAR and IOMMU are on out of the box.
+- **A third card from another vendor works, but as its own server.** ROCm doesn't drive the Intel Arc Pro
+  B60, so it can't join the R9700's router; it runs a second router on llama.cpp's SYCL build, with the same
+  model names, and clients pick the card by port. The B60 even reports its link as 2.5 GT/s x1; the real link
+  is PCIe 4.0 x8.
 
 ## Fitting models into 32 GB
 
@@ -46,6 +50,8 @@ Covered in [HARDWARE.md](HARDWARE.md); the short version:
   points at a missing file stops the router's next restart.
 - **Never ask the router about a model by name just to check on it.** `/slots?model=X` and any request
   naming X make the router load X, unloading whatever was running.
+- **Watch a model past its first 10K tokens on a new backend.** Gemma 4 31B ran fine on the B60 until its
+  context passed about 10-12K tokens, then crashed the card every time; short tests didn't show it.
 - **Keep small always-on models off the router.** With one model loaded at a time, a request for the 9B
   chat model through the router evicts the big model. Here the small models run as their own servers on
   the 9060 XT.
@@ -58,6 +64,9 @@ Covered in [HARDWARE.md](HARDWARE.md); the short version:
   third longer, and now and then one never finished. Send a large `max_tokens` (32,000) with it.
 - **A reasoning budget stops endless thinking.** Bolt sometimes looped on an edge-case checklist until the
   token limit; `reasoning-budget = 24000` made it answer every time (4 of 4, against 1 of 2 without).
+- **Look for a draft inside the model file.** Qwen3.8 27B carries its own next-token (MTP) layer:
+  `spec-type = draft-mtp` took it from 15.7 to 29.4 tok/s on the B60, with no extra file and no loss on the
+  review test. Many models have none (Qwen3.6, Gemma 4), so check the model card.
 - **To measure a draft model's speed, send the identical prompt every run.** Speed depends on how many
   drafted tokens are accepted, which depends on the exact text: a different prompt prefix per run made
   generation speed swing between 56 and 88 tok/s.
@@ -74,6 +83,8 @@ Covered in [HARDWARE.md](HARDWARE.md); the short version:
   settings did. The hard set uses 3 attempts per task.
 - **Separate "cut off" from "wrong".** An answer that hits the token limit scores 0 for a different reason
   than a wrong answer, and the fix is different (a larger limit or a reasoning budget).
+- **A shorter answer isn't a cheaper review.** Asking reviewers for a verdict only made them much
+  faster but dropped Qwen3.8 from 23/25 to 18/25 and Qwen3.6 from 23/25 to 14/25.
 - **Thinking is not always better.** On the basic set Qwen3.8 27B scored 67/67 with thinking off and 53/67
   with it on, taking 15 times as long.
 - **Check the model card's sampling for the job.** Some cards give separate settings for chat and for code

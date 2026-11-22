@@ -3,7 +3,8 @@
 Every number measured on this one machine: Huananzhi H12D-8D, EPYC 7402, 128 GB DDR4-2400 (8 channels),
 Radeon AI PRO R9700 32 GB, Ubuntu 26.04, kernel 7.0, llama.cpp ROCm builds from
 [lemonade-sdk/llamacpp-rocm](https://github.com/lemonade-sdk/llamacpp-rocm) (gfx120X).
-All router models ran on the **R9700**, one at a time. Results from October 23 to November 3, 2026.
+All router models ran on the **R9700**, one at a time, from October 23 to November 3, 2026, except the
+[Intel Arc Pro B60](#intel-arc-pro-b60) section (SYCL build b12613, November 21-22).
 
 - [Coding: hard set](#coding-hard-set): how often each model writes correct code, and how fast
 - [Coding: basic set](#coding-basic-set)
@@ -11,6 +12,7 @@ All router models ran on the **R9700**, one at a time. Results from October 23 t
 - [Speculative decoding (DFlash)](#speculative-decoding-dflash)
 - [R9700 power limit](#r9700-power-limit)
 - [RX 9060 XT services](#rx-9060-xt-services)
+- [Intel Arc Pro B60](#intel-arc-pro-b60): speed, MTP, batch size, a code-review test
 
 ## How the coding tests work
 
@@ -168,3 +170,47 @@ The 16 GB card runs the small always-on services, measured 2026-10-27:
 | Embeddings (port 9702) | Qwen3-Embedding-4B Q8_0 | about 5.2 GB | 32 chunks of ~380 tokens in 3.1 s, 2,560-dim vectors |
 | Reranker (port 9703) | Qwen3-Reranker-0.6B Q8_0 | about 1.4 GB | 30 documents reranked in 0.8 s |
 | Quick chat (port 9701) | Qwen3.5 9B UD-Q4_K_XL | | not benchmarked yet |
+
+## Intel Arc Pro B60
+
+24 GB, PCIe 4.0 x8, 200 W limit, memory bandwidth 456 GB/s. llama.cpp SYCL build b12613, its own router on
+port 9704 ([`recipes/router-b60.ini`](recipes/router-b60.ini)). Measured 2026-11-21 and 22.
+The coding sets above have not been run on it yet.
+
+### Speed
+
+| Model | Setup | VRAM free | Gen tok/s | Same model on the R9700 |
+|---|---|---|---|---|
+| Qwen3.6 35B-A3B (fast-qwen) | UD-Q4_K_XL, ctx 49,152, `n-cpu-moe 4` | 2.4 GB | 53.7 | 65 (all in VRAM) |
+| Qwen3.8 27B + MTP | UD-Q4_K_XL, ctx 49,152, vision file | 0.02-0.25 GB | 29.4 on reviews, 22-24 on short answers | 27.9 (no draft) |
+| Qwen3.8 27B, no draft | same | | 15.7 on reviews | 27.9 |
+
+- **fast-qwen doesn't fit whole:** the 22.4 GB file plus context needs the experts of 4 of its 40 layers in
+  system RAM. With 2 layers it was no faster and left 1.4 GB free.
+- **A dense 27B is limited by the card's memory bandwidth** (456 GB/s): 15.7 tok/s without a draft.
+  Qwen3.8's file carries its own next-token (MTP) layer; `spec-type = draft-mtp` uses it as a draft for free
+  and nearly doubles generation. Qwen3.6 27B, fast-qwen and Gemma 4 have no MTP layer. An n-gram draft only
+  helps when the answer copies the prompt, so it gave nothing on reviews.
+- **Prompt batch size** (Qwen3.8, 4,096-token prompt): `-ub 512` 612 tok/s, `-ub 1024` 776, `-ub 2048` 870.
+  2048 ran out of memory on an image request with the vision file and MTP loaded, so the preset uses 1024.
+- **Long prompts:** both Qwens answered a 44,574-token prompt (prompt speed: Qwen3.8 630 tok/s, fast-qwen
+  1,499 tok/s), and both passed an image test.
+- **Model swap:** 12-15 s on the live service.
+
+### Code review test
+
+25 Python samples with known answers from the hard and basic sets: 12 have a bug (6 planted in reference
+solutions, 6 wrong answers models wrote in the hard set) and 13 are correct (6 reference solutions, 7 correct
+model answers); the hidden checks decide which is which. The model reads each one
+and answers PASS or FAIL. Thinking off, one attempt per sample. The test script is not in this repo yet.
+
+| Model | Right | Bugs caught | False alarms | Time |
+|---|---|---|---|---|
+| Qwen3.8 27B + MTP | **23/25** | **12/12** | 2/13 | 1,262 s |
+| Qwen3.6 27B | 23/25 | 10/12 | 0/13 | 1,339 s |
+| Qwen3.8 27B, no draft | 22/25 | 12/12 | 3/13 | 3,030 s |
+| Gemma 4 31B (ctx 16,384, no vision file) | 22/25 | 9/12 | 0/13 | 638 s |
+
+Qwen3.8 caught every bug with and without the draft; with MTP it took less than half the time, so it is the B60's
+reviewer. GLM-4.7-Flash 30B-A3B did badly and was stopped after 18 samples. Asking for a short verdict-only
+review made it much faster (Qwen3.8: 56 s for all 25) but cost accuracy: Qwen3.8 18/25, Qwen3.6 14/25.

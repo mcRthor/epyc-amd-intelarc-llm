@@ -1,7 +1,8 @@
 # Recipes
 
 How the models are served on this build: one llama.cpp **router** on the R9700 holding the big models
-(one loaded at a time), and three small always-on servers on the RX 9060 XT.
+(one loaded at a time), three small always-on servers on the RX 9060 XT, and a second router on the
+Intel Arc Pro B60.
 
 | Port | Card (HIP index) | Script | What |
 |---|---|---|---|
@@ -9,8 +10,9 @@ How the models are served on this build: one llama.cpp **router** on the R9700 h
 | 9701 | 9060 XT (0) | [`start-quick.sh`](start-quick.sh) | Qwen3.5 9B, fast small chat |
 | 9702 | 9060 XT (0) | [`start-embed.sh`](start-embed.sh) | Qwen3-Embedding-4B, `/v1/embeddings` |
 | 9703 | 9060 XT (0) | [`start-rerank.sh`](start-rerank.sh) | Qwen3-Reranker-0.6B, `/v1/rerank` |
+| 9704 | Arc Pro B60 (Level Zero 0) | [`start-b60.sh`](start-b60.sh) + [`router-b60.ini`](router-b60.ini) | second router: fast chat (default) and code reviewer; SYCL build |
 
-All four are llama-server instances with its OpenAI-compatible API, and all require an API key.
+All five are llama-server instances with its OpenAI-compatible API, and all require an API key.
 
 ## Setup
 
@@ -58,6 +60,29 @@ sudo systemctl enable --now locai-router locai-quick locai-embed locai-rerank
   there say why each value was chosen.
 - Request settings override `router.ini`: for example send `max_tokens: 32000` to reasoning models on hard
   problems, and `chat_template_kwargs: {"enable_thinking": false}` to turn thinking off where supported.
+
+## Arc Pro B60 router
+
+ROCm only drives AMD cards, so the B60 runs its own router on llama.cpp's **SYCL** build (Intel oneAPI,
+Level Zero), with the same model names and API key as the R9700 router; the port picks the card.
+SYCL was faster than llama.cpp's Vulkan build here, supports MTP, and reports the card's whole 24 GB
+(Vulkan reported about 22 GB).
+
+1. **Runtime:** Intel's oneAPI runtime packages (`intel-oneapi-runtime-*`, 2026.2 here) and
+   `intel-oneapi-umf-1.2`. Without `libumf.so.1` the SYCL build quietly uses the slower OpenCL path.
+2. **llama.cpp:** a SYCL build (b12613 here), unpacked into `~/locai/llama/sycl/`. Check the card shows up
+   with its free memory: `~/locai/llama/sycl/llama-server --list-devices`.
+3. **Presets:** [`router-b60.ini`](router-b60.ini) into `~/locai/models/`. Every model must fit in about
+   24 GB with its context; fast-qwen only fits with 4 layers' experts in RAM (`n-cpu-moe = 4`).
+4. **Service:** the user that runs it needs access to `/dev/dri` (the `render` group), as for the Radeons.
+
+```bash
+sudo cp systemd/locai-b60.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now locai-b60
+```
+
+With one Intel GPU it is Level Zero device 0; with more, set `B60_DEVICE` (see the top of `start-b60.sh`).
 
 ## R9700 power limit
 

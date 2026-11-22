@@ -1,6 +1,7 @@
 # Hardware notes
 
-What it took to run two RDNA 4 Radeons on a Huananzhi H12D-8D, and what to expect.
+What it took to run two RDNA 4 Radeons, and since 2026-11-21 an Intel Arc Pro B60, on a Huananzhi H12D-8D,
+and what to expect.
 
 ![Close-up: H12D-8D with the EPYC 7402 under a Dynatron A26, 8 DIMMs, M.2 heatsink and the R9700](../images/build-closeup.jpg)
 
@@ -14,22 +15,26 @@ What it took to run two RDNA 4 Radeons on a Huananzhi H12D-8D, and what to expec
 | RAM | 8 × 16 GB Micron 36ASF2G72PZ-2G1A2 | DDR4 registered ECC, dual-rank, running 2400 MT/s, all 8 channels |
 | GPU 0 | AMD Radeon AI PRO R9700 32 GB (ASRock) | RDNA 4 (gfx1201), blower; power limit set to 250 W (range 210-300 W) |
 | GPU 1 | AMD Radeon RX 9060 XT 16 GB (PowerColor) | RDNA 4 (gfx1200); stock 160 W limit (max 182 W) |
+| GPU 2 | Intel Arc Pro B60 24 GB (ASRock) | Battlemage (BMG-G21), PCIe x8 card, `xe` driver; 200 W limit; added 2026-11-21 |
 | Storage | Acer Predator GM9 1 TB | PCIe 5.0 NVMe, runs at PCIe 4.0 x4 on this board |
 | PSU | ASRock Phantom Gaming PG-1600G | 1600 W, ATX 3.1, 80 Plus Gold / Cybenetics Platinum, fully modular, 12V-2x6 |
 | Case | open-air stackable test bench | ATX / E-ATX, two large fans mounted on the frame |
 
 ## PCIe layout
 
-Both GPUs get a full **PCIe 4.0 x16** link straight to a CPU root port. There is no PCIe switch on the board.
+Each GPU has its own link straight to a CPU root port, at the full width the card has: **PCIe 4.0 x16** for
+the two Radeons, **PCIe 4.0 x8** for the B60 (an x8 card). There is no PCIe switch on the board.
 
-| GPU | PCI address | CPU root port | Link to CPU | HIP index |
+| GPU | PCI address | CPU root port | Link to CPU | Device index |
 |---|---|---|---|---|
-| R9700 | `0000:03:00.0` | `00:01.1` | 16 GT/s x16 (PCIe 4.0) | **1** |
-| RX 9060 XT | `0000:43:00.0` | `40:03.1` | 16 GT/s x16 (PCIe 4.0) | **0** |
+| R9700 | `0000:03:00.0` | `00:01.1` | 16 GT/s x16 (PCIe 4.0) | HIP **1** |
+| RX 9060 XT | `0000:43:00.0` | `40:03.1` | 16 GT/s x16 (PCIe 4.0) | HIP **0** |
+| Arc Pro B60 | `0000:c6:00.0` | `c0:03.1` | 16 GT/s x8 (PCIe 4.0) | Level Zero 0 (not visible to ROCm) |
 
-- `lspci` and sysfs report **32 GT/s** (PCIe 5.0) on the GPU itself. Each card has its own small PCIe switch
-  inside (an upstream and a downstream port); 32 GT/s is the link inside the card, and the card's upstream
-  port runs at 16 GT/s to the CPU. Walk up the tree to the root port to see the real link:
+- The cards don't report their real link. Each has its own small PCIe switch inside (an upstream and a
+  downstream port), and the GPU behind it reports the link inside the card: **32 GT/s x16** on the Radeons,
+  **2.5 GT/s x1** on the B60. The card's upstream port is the one that runs at 16 GT/s to the CPU. Walk up
+  the tree to the root port to see the real link:
   ```bash
   p=$(readlink -f /sys/bus/pci/devices/0000:03:00.0)
   while [ -e "$p/current_link_speed" ]; do echo "$(basename $p) $(cat $p/current_link_speed) x$(cat $p/current_link_width)"; p=$(dirname $p); done
@@ -37,6 +42,8 @@ Both GPUs get a full **PCIe 4.0 x16** link straight to a CPU root port. There is
 - **The HIP order is the reverse of the PCI order.** ROCm numbers the 9060 XT as device 0 and the R9700 as 1.
   Pick cards with `HIP_VISIBLE_DEVICES`, and check with a short load which card's VRAM goes up before you
   trust an index. `rocm-smi`/`amd-smi` may number them differently again.
+- **The B60 has its own numbering.** ROCm doesn't see it; the SYCL build of llama.cpp picks it with
+  `ONEAPI_DEVICE_SELECTOR=level_zero:0`. Adding it didn't change the Radeons' HIP indexes.
 - The NVMe drive is PCIe 5.0 but the EPYC 7002 platform is PCIe 4.0, so it runs at Gen4 x4 (about 7 GB/s).
   That only affects how fast models load.
 
@@ -49,8 +56,8 @@ Fill all 8 slots: every empty channel cuts bandwidth by an eighth.
 
 ## Power and cooling
 
-- Load: R9700 at most 250 W (capped), 9060 XT at most 160 W, CPU 180 W TDP. The whole system stays well under
-  1 kW, so the 1600 W PSU has plenty of headroom (sized for a second large GPU).
+- Load: R9700 at most 250 W (capped), 9060 XT at most 160 W, B60 at most 200 W, CPU 180 W TDP: about 790 W
+  for the four at their limits, so the 1600 W PSU still has plenty of headroom.
 - The R9700's limit resets to 300 W at every boot and GPU reset; a oneshot systemd unit sets it again
   ([`recipes/power-cap/`](../recipes/power-cap/)). Measured cost of 250 W: about 3.5% prompt speed and 1%
   generation speed ([BENCHMARKS.md](../BENCHMARKS.md#r9700-power-limit)).
@@ -66,6 +73,7 @@ Fill all 8 slots: every empty channel cuts bandwidth by an eighth.
 | Kernel | 7.0.0 (in-tree `amdgpu`) |
 | ROCm (system, for `amd-smi`) | 10.1.0 |
 | llama.cpp | ROCm builds b1350, then b1359, from [lemonade-sdk/llamacpp-rocm](https://github.com/lemonade-sdk/llamacpp-rocm) (`gfx120X`); they bundle their own ROCm libraries |
+| B60 | in-tree `xe` driver; llama.cpp SYCL build b12613; Intel oneAPI runtime 2026.2 packages plus `intel-oneapi-umf-1.2` |
 
 ## Quirks seen
 
@@ -76,6 +84,13 @@ Fill all 8 slots: every empty channel cuts bandwidth by an eighth.
 - **The 9060 XT's fans stop at idle** (zero-RPM mode), so it idles a few degrees warmer than the R9700,
   whose blower never stops. Not a fault.
 - **llama.cpp b1350 can't load Recursive Flint** (unknown architecture); b1359 can.
+- **B60: Gemma 4 31B crashed the card** every time its context passed about 10-12K tokens (SYCL build b12613),
+  even with 900 MB free: `xe 0000:c6:00.0: [drm] VM worker error: -12` in the kernel log and
+  `UR_RESULT_ERROR_DEVICE_LOST` in llama-server. The card recovered by itself each time; the Qwen models run
+  fine at 44K tokens. Gemma stays on the R9700.
+- **B60: without `libumf.so.1`** (package `intel-oneapi-umf-1.2`) the SYCL build quietly falls back to the
+  slower OpenCL path. `start-b60.sh` refuses to start without it.
+- **B60: no flash attention** on this SYCL build; llama.cpp turns it off by itself.
 - **Router mode:** never send a request that names a model (`/slots?model=X`, chat requests) just to check
   on it: the router loads that model. Read a loaded model's state from its own child process port instead.
 
@@ -87,9 +102,9 @@ on by default. The state below was read from Linux (`/sys`, the kernel log and `
 | Setting | State | How to check |
 |---|---|---|
 | Boot mode | UEFI; Secure Boot disabled | `ls /sys/firmware/efi`, `mokutil --sb-state` |
-| Above 4G decoding + Resizable BAR | on: BAR 0 spans all VRAM (32 GB on the R9700, 16 GB on the 9060 XT) | `sudo lspci -vvv -s 03:00.0 \| grep -A2 "Resizable BAR"` |
+| Above 4G decoding + Resizable BAR | on: a BAR spans all VRAM (32 GB on the R9700, 16 GB on the 9060 XT, 32 GB on the 24 GB B60) | `sudo lspci -vvv -s 03:00.0 \| grep -A2 "Resizable BAR"` |
 | IOMMU | on (AMD-Vi); ACS enabled on the GPU root ports | `ls /sys/class/iommu` |
-| PCIe link speed | Gen4 (16 GT/s) x16 to both GPUs | see [PCIe layout](#pcie-layout) |
+| PCIe link speed | Gen4 (16 GT/s): x16 to both Radeons, x8 to the B60 | see [PCIe layout](#pcie-layout) |
 | PCIe ASPM (link power saving) | disabled on the GPU links | `sudo lspci -vvv \| grep "LnkCtl:"` |
 | SMT | on, 48 threads | `cat /sys/devices/system/cpu/smt/control` |
 | NUMA nodes per socket | NPS1 (one node) | `ls -d /sys/devices/system/node/node*` |

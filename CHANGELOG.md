@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Intel Arc Pro B60 24 GB** added (2026-11-21) as a third card, on PCIe 4.0 x8. It runs a second llama.cpp
+  router on port 9704 with the SYCL build b12613: fast-qwen (Qwen3.6 35B-A3B) at start, Qwen3.8 27B as
+  code reviewer with its built-in MTP draft.
+- `docs/HARDWARE.md`: B60 in the parts, PCIe and power tables, its Level Zero numbering, software, and
+  quirks (Gemma 4 crashes past 10-12K tokens, `libumf` needed, no flash attention).
+- `BENCHMARKS.md`: B60 speed, MTP, batch sizes, and a 25-sample code review test.
+- `recipes/`: `router-b60.ini`, `start-b60.sh`, `systemd/locai-b60.service`, and setup steps.
+- `docs/LESSONS.md`: drafts built into model files, verdict-only reviews, long-context tests on a new backend.
+
+Not yet: the coding sets on the B60, the review test script, B60 support in `scripts/report.sh`.
+
 ## v0.1 (2026-11-08)
 
 First version.
