@@ -14,7 +14,7 @@ comments in [`recipes/router.ini`](../recipes/router.ini).
 
 Covered in [HARDWARE.md](HARDWARE.md); the short version:
 
-- **Don't trust the first PCIe number you see.** Linux reports 32 GT/s for each GPU, but that is the link
+- **Don't trust the first PCIe number you see.** Linux reports 32 GT/s for each Radeon, but that is the link
   inside the card; the real link to the CPU is PCIe 4.0 x16. Walk up to the root port.
 - **The HIP device order is the reverse of the PCI order** (the 9060 XT is HIP 0). Check which card's VRAM
   fills before trusting an index.
@@ -66,7 +66,7 @@ Covered in [HARDWARE.md](HARDWARE.md); the short version:
   token limit; `reasoning-budget = 24000` made it answer every time (4 of 4, against 1 of 2 without).
 - **Look for a draft inside the model file.** Qwen3.8 27B carries its own next-token (MTP) layer:
   `spec-type = draft-mtp` took it from 15.7 to 29.4 tok/s on the B60, with no extra file and no loss on the
-  review test. Many models have none (Qwen3.6, Gemma 4), so check the model card.
+  review test. Many models have none (Qwen3.6 27B and 35B-A3B, Gemma 4), so check the model card.
 - **To measure a draft model's speed, send the identical prompt every run.** Speed depends on how many
   drafted tokens are accepted, which depends on the exact text: a different prompt prefix per run made
   generation speed swing between 56 and 88 tok/s.

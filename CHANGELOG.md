@@ -9,13 +9,16 @@
   quirks (Gemma 4 crashes past 10-12K tokens, `libumf` needed, no flash attention).
 - `BENCHMARKS.md`: B60 speed, MTP, batch sizes, and a 25-sample code review test.
 - `recipes/`: `router-b60.ini`, `start-b60.sh`, `systemd/locai-b60.service`, and setup steps.
-- `docs/LESSONS.md`: drafts built into model files, verdict-only reviews, long-context tests on a new backend.
+- `docs/LESSONS.md` additions: drafts built into model files, verdict-only reviews, long-context tests on a new
+  backend.
 - `bench/review_eval.py`, `bench/review_test.py` and `bench/review_samples.json`: the code review test, with
   its 25 samples; `--check` re-runs them against the hidden checks.
 - `scripts/report.sh`: lists Intel cards on the `xe` driver too (VRAM, power limit, real PCIe link), the
   oneAPI runtime and the SYCL llama.cpp build.
 - README: how to run the tests on Ubuntu, which blocks the sandbox's user namespaces by default.
-- BIOS: still on factory defaults after adding the B60.
+- BIOS: factory defaults, nothing changed, also after adding the B60.
+- `docs/LESSONS.md`: lessons learned building and testing the server (first version; written after the
+  v0.1 tag).
 
 Not yet: the coding sets on the B60.
 
@@ -31,10 +34,9 @@ First version.
 - `recipes/`: llama.cpp router presets, start scripts, systemd units, R9700 power-cap service.
 - `bench/code_test.py`: the coding benchmark.
 - `scripts/report.sh`: rig report for AMD GPU machines.
-- BIOS: factory defaults, nothing changed; the state in effect as seen from Linux (UEFI, Resizable BAR,
-  IOMMU, ASPM, SMT, NPS1, boost, C-states).
+- BIOS: the state in effect as seen from Linux (UEFI, Resizable BAR, IOMMU, ASPM, SMT, NPS1, boost,
+  C-states).
 - Benchmark checks validated against the reference solutions.
-- `docs/LESSONS.md`: lessons learned building and testing the server.
 
 Not yet: Qwen3.5 9B speed on the 9060 XT, results from other machines; the system monitor (HUD),
 certificates, firewall ports and Docker setup.

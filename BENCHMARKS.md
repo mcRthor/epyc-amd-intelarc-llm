@@ -211,8 +211,8 @@ Script: [`bench/review_eval.py`](bench/review_eval.py), samples in [`bench/revie
 | Qwen3.8 27B + MTP | **23/25** | **12/12** | 2/13 | 1,262 s |
 | Qwen3.6 27B | 23/25 | 10/12 | 0/13 | 1,339 s |
 | Qwen3.8 27B, no draft | 22/25 | 12/12 | 3/13 | 3,030 s |
-| Gemma 4 31B (ctx 16,384, no vision file) | 22/25 | 9/12 | 0/13 | 638 s |
+| Gemma 4 31B (ctx 16,384, no vision file; before it was taken off the B60) | 22/25 | 9/12 | 0/13 | 638 s |
 
 Qwen3.8 caught every bug with and without the draft; with MTP it took less than half the time, so it is the B60's
 reviewer. GLM-4.7-Flash 30B-A3B did badly and was stopped after 18 samples. Asking for a short verdict-only
-review made it much faster (Qwen3.8: 56 s for all 25) but cost accuracy: Qwen3.8 18/25, Qwen3.6 14/25.
+review made the reviews much faster (Qwen3.8: 56 s for all 25) but cost accuracy: Qwen3.8 18/25, Qwen3.6 14/25.

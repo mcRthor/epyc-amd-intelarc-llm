@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # report.sh - print a Markdown summary of an LLM machine with AMD and/or Intel GPUs: board, BIOS, CPU, memory,
 # GPUs (with the real PCIe link to the CPU), storage and software. Run as a normal user; run with sudo to add the DIMM
-# details (dmidecode needs root). Prints no serial numbers, UUIDs, MAC addresses or host names.
+# details (dmidecode needs root). Intel cards' VRAM is read from the render node, so the user needs to be in the
+# render group (as anyone running models on the card is). Prints no serial numbers, UUIDs, MAC addresses or
+# host names.
 #
 #   bash scripts/report.sh > my-rig.md
 #   LLAMA_BIN=~/locai/llama/bin bash scripts/report.sh     # also report the llama.cpp build
