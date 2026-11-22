@@ -202,7 +202,9 @@ The coding sets above have not been run on it yet.
 25 Python samples with known answers from the hard and basic sets: 12 have a bug (6 planted in reference
 solutions, 6 wrong answers models wrote in the hard set) and 13 are correct (6 reference solutions, 7 correct
 model answers); the hidden checks decide which is which. The model reads each one
-and answers PASS or FAIL. Thinking off, one attempt per sample. The test script is not in this repo yet.
+and answers PASS or FAIL. Thinking off, one attempt per sample.
+Script: [`bench/review_eval.py`](bench/review_eval.py), samples in [`bench/review_samples.json`](bench/review_samples.json)
+(`--check` re-runs them against the hidden checks: 12 buggy, 13 correct).
 
 | Model | Right | Bugs caught | False alarms | Time |
 |---|---|---|---|---|

@@ -96,8 +96,8 @@ Fill all 8 slots: every empty channel cuts bandwidth by an eighth.
 
 ## BIOS
 
-BIOS 3.0 (2026-09-16), **factory defaults: no setting was changed.** Everything this build needs is already
-on by default. The state below was read from Linux (`/sys`, the kernel log and `lspci -vvv`).
+BIOS 3.0 (2026-09-16), **factory defaults: no setting was changed**, not even when the B60 was added.
+Everything this build needs is already on by default. The state below was read from Linux (`/sys`, the kernel log and `lspci -vvv`).
 
 | Setting | State | How to check |
 |---|---|---|

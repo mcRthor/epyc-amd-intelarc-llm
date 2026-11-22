@@ -70,7 +70,8 @@ Full tables, method and caveats: **[BENCHMARKS.md](BENCHMARKS.md)**.
 | [`docs/LESSONS.md`](docs/LESSONS.md) | lessons learned: fitting models, running the router, benchmarking |
 | [`recipes/`](recipes/) | llama.cpp router presets (R9700 and B60), start scripts, systemd units, R9700 power cap |
 | [`bench/code_test.py`](bench/code_test.py) | the coding benchmark (Python stdlib only) |
-| [`scripts/report.sh`](scripts/report.sh) | prints a rig report for an AMD GPU machine |
+| [`bench/review_eval.py`](bench/review_eval.py), [`review_test.py`](bench/review_test.py) | the code review test: can a model spot buggy code? ([samples](bench/review_samples.json)) |
+| [`scripts/report.sh`](scripts/report.sh) | prints a rig report for a machine with AMD and Intel GPUs |
 
 ## Run the benchmark on your machine
 
@@ -78,12 +79,23 @@ Full tables, method and caveats: **[BENCHMARKS.md](BENCHMARKS.md)**.
 python3 bench/code_test.py --validate                     # check the tests themselves
 python3 bench/code_test.py --url http://localhost:8080 --key-file ~/key.txt \
         --models <your-model> --set hard --repeat 3 --thinking --max-tokens 32000
+python3 bench/review_eval.py --check                       # check the 25 review samples
+python3 bench/review_eval.py --url http://localhost:8080 --key-file ~/key.txt --model <your-model> --out review.json
 bash scripts/report.sh > my-rig.md                         # hardware and software summary
 ```
 
-The benchmark runs each answer with no network through `unshare -rn`. If every check fails with
-`unshare: write failed /proc/self/uid_map: Operation not permitted`, your system (or the container or tool
-you run it from) blocks unprivileged user namespaces; on Ubuntu see `kernel.apparmor_restrict_unprivileged_userns`.
+Both tests run model-written code with no network through `unshare -rn`, as your own user (never with sudo:
+the code would run as root). If every check fails with `unshare: write failed /proc/self/uid_map: Operation not
+permitted`, the system blocks unprivileged user namespaces. Ubuntu does by default; allow them for the run and
+switch the protection back on afterwards:
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+python3 bench/code_test.py --validate
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+```
+
+A reboot also switches it back on. Containers and some sandboxed apps block namespaces in other ways.
 
 ## License
 

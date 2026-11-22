@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# report.sh - print a Markdown summary of an AMD GPU LLM machine: board, BIOS, CPU, memory, GPUs (with the
-# real PCIe link to the CPU), storage and software. Run as a normal user; run with sudo to add the DIMM
+# report.sh - print a Markdown summary of an LLM machine with AMD and/or Intel GPUs: board, BIOS, CPU, memory,
+# GPUs (with the real PCIe link to the CPU), storage and software. Run as a normal user; run with sudo to add the DIMM
 # details (dmidecode needs root). Prints no serial numbers, UUIDs, MAC addresses or host names.
 #
 #   bash scripts/report.sh > my-rig.md
 #   LLAMA_BIN=~/locai/llama/bin bash scripts/report.sh     # also report the llama.cpp build
+#   LLAMA_SYCL_BIN=~/locai/llama/sycl bash scripts/report.sh  # and the SYCL build (Intel GPUs)
 set -u
 rd() { cat "$1" 2>/dev/null | tr -d '\n'; }
 dmi() { rd "/sys/class/dmi/id/$1"; }
@@ -41,23 +42,48 @@ fi
 echo
 echo "## GPUs"
 echo
-echo "| GPU | PCI | VRAM | VBIOS | Power limit | Link to CPU |"
-echo "|---|---|---|---|---|---|"
+echo "| GPU | Driver | PCI | VRAM | VBIOS | Power limit | Link to CPU |"
+echo "|---|---|---|---|---|---|---|"
+intel=0
 for dev in /sys/bus/pci/devices/*; do
-    [ "$(rd "$dev/vendor")" = 0x1002 ] || continue
-    [ -e "$dev/mem_info_vram_total" ] || continue
-    bdf=$(basename "$dev")
-    name=$(lspci -s "$bdf" 2>/dev/null | sed 's/^[^:]*: *[^:]*: *//; s/^Advanced Micro Devices, Inc. \[AMD\/ATI\] *//')
-    vram=$(( ($(rd "$dev/mem_info_vram_total") + 536870912) / 1073741824 ))
+    case "$(rd "$dev/class")" in 0x03*) ;; *) continue ;; esac   # display controllers only
+    vendor=$(rd "$dev/vendor"); bdf=$(basename "$dev")
+    drv=$(basename "$(readlink -f "$dev/driver" 2>/dev/null)")
+    case "$vendor" in
+        0x1002)   # AMD: amdgpu reports VRAM in sysfs
+            [ -e "$dev/mem_info_vram_total" ] || continue
+            vram="$(( ($(rd "$dev/mem_info_vram_total") + 536870912) / 1073741824 )) GB" ;;
+        0x8086)   # Intel: the xe driver has no VRAM file; ask the render node (needs the render group)
+            [ "$drv" = xe ] || continue   # integrated i915 graphics: not an LLM card
+            intel=1
+            node=$(ls "$dev/drm" 2>/dev/null | grep -m1 '^renderD')
+            v=$(python3 -I - "/dev/dri/$node" 2>/dev/null <<'EOF'
+import ctypes, fcntl, os, struct, sys
+Q = 0xC0000000 | (40 << 16) | (0x64 << 8) | 0x40      # DRM_IOCTL_XE_DEVICE_QUERY
+fd = os.open(sys.argv[1], os.O_RDWR)
+r = bytearray(struct.pack("<QIIQQQ", 0, 1, 0, 0, 0, 0))  # query 1 = memory regions; first ask the size
+fcntl.ioctl(fd, Q, r); size = struct.unpack_from("<I", r, 12)[0]
+b = ctypes.create_string_buffer(size)
+fcntl.ioctl(fd, Q, bytearray(struct.pack("<QIIQQQ", 0, 1, size, ctypes.addressof(b), 0, 0)))
+raw = b.raw
+print(sum(struct.unpack_from("<HHIQQ", raw, 8 + i * 88)[3] for i in range(struct.unpack_from("<I", raw, 0)[0])
+          if struct.unpack_from("<H", raw, 8 + i * 88)[0] == 1))   # class 1 = VRAM
+EOF
+)
+            vram=${v:+"$(( (v + 536870912) / 1073741824 )) GB"} ;;
+        *) continue ;;
+    esac
+    name=$(lspci -s "$bdf" 2>/dev/null | sed 's/^[^:]*: *[^:]*: *//; s/^Advanced Micro Devices, Inc. \[AMD\/ATI\] *//; s/^Intel Corporation *//')
     cap=$(rd "$(ls "$dev"/hwmon/hwmon*/power1_cap 2>/dev/null | head -n1)")
     capmax=$(rd "$(ls "$dev"/hwmon/hwmon*/power1_cap_max 2>/dev/null | head -n1)")
     # walk up to the CPU root port: the GPU's own link is often its internal bridge, not the real slot link
     p=$(readlink -f "$dev"); link=""
     while [ -e "$p/current_link_speed" ]; do link="$(rd "$p/current_link_speed" | sed 's/ PCIe//') x$(rd "$p/current_link_width") (port $(basename "$p"))"; p=$(dirname "$p"); done
-    echo "| ${name:-AMD GPU} | \`$bdf\` | ${vram} GB | $(rd "$dev/vbios_version") | ${cap:+$((cap/1000000)) W}${capmax:+ (max $((capmax/1000000)) W)} | $link |"
+    echo "| ${name:-GPU} | ${drv:-none} | \`$bdf\` | ${vram:-?} | $(rd "$dev/vbios_version") | ${cap:+$((cap/1000000)) W}${capmax:+ (max $((capmax/1000000)) W)} | $link |"
 done
 echo
-echo "HIP device order: check with \`HIP_VISIBLE_DEVICES\` and a short load; it may differ from the PCI order above."
+echo "Device order: ROCm (\`HIP_VISIBLE_DEVICES\`) and Level Zero (\`ONEAPI_DEVICE_SELECTOR\`) number the cards their own"
+echo "way, which may differ from the PCI order above; check with a short load."
 
 echo
 echo "## Storage"
@@ -73,6 +99,14 @@ if command -v amd-smi >/dev/null; then
 fi
 [ -r /opt/rocm/.info/version ] && echo "- /opt/rocm: $(rd /opt/rocm/.info/version)"
 v=$(modinfo -F version amdgpu 2>/dev/null); echo "- amdgpu: ${v:-in-tree driver} (kernel $(uname -r))"
+if [ "$intel" = 1 ]; then
+    echo "- xe: in-tree driver (kernel $(uname -r))"
+    v=$(dpkg-query -W -f '${Version}' intel-oneapi-runtime-dpcpp-sycl-core 2>/dev/null); [ -n "$v" ] && echo "- oneAPI SYCL runtime: $v"
+    [ -e /opt/intel/oneapi/umf/latest/lib/libumf.so.1 ] && echo "- oneAPI UMF: installed" || echo "- oneAPI UMF: not found (SYCL falls back to OpenCL)"
+fi
 if [ -n "${LLAMA_BIN:-}" ] && [ -x "$LLAMA_BIN/llama-server" ]; then
     echo "- llama.cpp: $(LD_LIBRARY_PATH="$LLAMA_BIN" "$LLAMA_BIN/llama-server" --version 2>&1 | grep -m1 -i version)"
+fi
+if [ -n "${LLAMA_SYCL_BIN:-}" ] && [ -x "$LLAMA_SYCL_BIN/llama-server" ]; then
+    echo "- llama.cpp SYCL: $(LD_LIBRARY_PATH="/opt/intel/oneapi/umf/latest/lib:$LLAMA_SYCL_BIN" "$LLAMA_SYCL_BIN/llama-server" --version 2>&1 | grep -m1 -i version)"
 fi
